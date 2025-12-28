@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulateur de Bon de Commande - 4e Technique</title>
+    
+    <!-- Architecture No-Build : Import Map pour les modules standards -->
+    <script type="importmap">
+{
+  "imports": {
+    "react": "https://esm.sh/react@18.2.0",
+    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+    "react/": "https://esm.sh/react@^19.2.3/"
+  }
+}
+</script>
+
+    <!-- Transpilateur Babel pour le JSX au runtime -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Styles et Polices -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; margin: 0; }
+        .font-signature { font-family: 'Dancing Script', cursive; }
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; padding: 0; }
+            .shadow-2xl { box-shadow: none !important; }
+            .border { border: 1px solid #000 !important; }
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn { animation: fadeIn 0.4s ease-out forwards; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import React, { useState } from 'react';
+        import { createRoot } from 'react-dom/client';
+
+        // --- DONNÉES DE L'EXERCICE ---
+        const BUYER_DATA = {
+            name: "TECHSTORE SRL",
+            address: "Rue du Commerce 15, 7000 MONS",
+            tva: "BE0456.789.012",
+            bce: "0456.789.012",
+            iban: "BE68 0017 1234 5678"
+        };
+
+        const OFFERS = [
+            {
+                id: "off-01",
+                supplierName: "MediaMarkt Pro",
+                supplierAddress: "Drève Richelle 161, 1410 Waterloo",
+                items: [
+                    { id: "it-1", reference: "IPAD10-64", designation: "iPad 10e gén. 64GB Silver", unit: "Pièce", pu: 449.00, qty: 3 },
+                    { id: "it-2", reference: "COQ-IPAD", designation: "Coque protection iPad", unit: "Pièce", pu: 29.99, qty: 5 },
+                    { id: "it-3", reference: "STY-LOT3", designation: "Lot 3 stylets compatibles", unit: "Lot", pu: 15.00, qty: 2 }
+                ],
+                conditions: {
+                    deliveryDelay: "7 jours",
+                    deliveryMode: "Franco de port",
+                    paymentDelay: "30 jours fin de mois",
+                    paymentMode: "Virement bancaire"
+                }
+            },
+            {
+                id: "off-02",
+                supplierName: "Fnac Solutions B2B",
+                supplierAddress: "Place de la Monnaie, 1000 Bruxelles",
+                items: [
+                    { id: "it-4", reference: "IPAD-GR", designation: "iPad 10e gén. 64GB Space Grey", unit: "Pièce", pu: 455.00, qty: 3 },
+                    { id: "it-5", reference: "COQ-ST", designation: "Coque standard iPad", unit: "Pièce", pu: 25.00, qty: 5 },
+                    { id: "it-6", reference: "STY-UN", designation: "Stylet précision (unité)", unit: "Pièce", pu: 18.00, qty: 6 }
+                ],
+                conditions: {
+                    deliveryDelay: "15 jours",
+                    deliveryMode: "Livraison payante (15€)",
+                    paymentDelay: "Au comptant",
+                    paymentMode: "Carte de crédit"
+                }
+            }
+        ];
+
+        const DELIVERY_MODES = ["Franco de port", "Livraison payante (15€)", "Retrait en magasin", "Bpost Express"];
+        const DELIVERY_DELAYS = ["3 jours", "5 jours", "7 jours", "15 jours", "30 jours"];
+        const PAYMENT_MODES = ["Virement bancaire", "Carte de crédit", "Espèces", "Domiciliation"];
+        const PAYMENT_DELAYS = ["Au comptant", "15 jours", "30 jours fin de mois", "60 jours"];
+
+        // --- COMPOSANTS ---
+
+        const CheckItem = ({ label, checked, tip }) => (
+            <div className={`flex items-start gap-3 p-4 rounded-xl border transition-all ${checked ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}`}>
+                <div className={`mt-0.5 ${checked ? 'text-green-500' : 'text-orange-500'}`}>
+                    <i className={`fa-solid ${checked ? 'fa-circle-check' : 'fa-triangle-exclamation'}`}></i>
+                </div>
+                <div>
+                    <p className={`text-sm font-bold ${checked ? 'text-green-800' : 'text-orange-800'}`}>{label}</p>
+                    {!checked && tip && <p className="text-[11px] text-orange-600 mt-1 italic font-medium">{tip}</p>}
+                </div>
+            </div>
+        );
+
+        const App = () => {
+            const [step, setStep] = useState('INTRO');
+            const [selectedOffer, setSelectedOffer] = useState(null);
+            const [po, setPo] = useState({
+                orderNumber: "BC-2025-001",
+                date: new Date().toLocaleDateString('fr-BE'),
+                buyer: BUYER_DATA,
+                supplier: { name: "", address: "" },
+                items: [],
+                conditions: { deliveryDelay: "", deliveryMode: "", paymentDelay: "", paymentMode: "" },
+                signature: ""
+            });
+
+            const totalHT = po.items.reduce((s, i) => s + i.total, 0);
+            const isReady = po.items.length > 0 && po.conditions.deliveryMode && po.conditions.deliveryDelay && po.conditions.paymentMode && po.conditions.paymentDelay && po.signature.length > 2;
+
+            return (
+                <div className="min-h-screen flex flex-col">
+                    <header className="bg-blue-800 text-white p-6 shadow-xl no-print">
+                        <div className="container mx-auto flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-white p-2 rounded-lg">
+                                    <i className="fa-solid fa-file-invoice text-blue-800 text-2xl"></i>
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl font-bold">Le Bon de Commande</h1>
+                                    <p className="text-xs opacity-85 uppercase tracking-wider">Économie d'entreprise - 4e Technique</p>
+                                </div>
+                            </div>
+                        </div>
+                    </header>
+
+                    <main className="flex-grow container mx-auto p-4 md:p-8">
+                        {step === 'INTRO' && (
+                            <div className="max-w-3xl mx-auto bg-white rounded-3xl shadow-2xl overflow-hidden animate-fadeIn">
+                                <div className="bg-gradient-to-r from-blue-700 to-indigo-800 p-10 text-white">
+                                    <h2 className="text-3xl font-black mb-4">Bienvenue, Futur Gestionnaire !</h2>
+                                    <p className="text-lg opacity-90 leading-relaxed">
+                                        Aujourd'hui, tu vas apprendre à passer une commande professionnelle. 
+                                        Tu travailles chez <span className="font-bold underline italic text-blue-200">TECHSTORE SRL</span>. 
+                                        Ton rôle est d'analyser deux offres et de remplir le bon de commande parfait.
+                                    </p>
+                                </div>
+                                <div className="p-10 space-y-8">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100">
+                                            <h3 className="font-bold text-blue-800 flex items-center gap-2 mb-4">
+                                                <i className="fa-solid fa-bullseye"></i> Tes Objectifs
+                                            </h3>
+                                            <ul className="text-sm text-blue-700 space-y-2">
+                                                <li>• Analyser et choisir la meilleure offre</li>
+                                                <li>• Recopier fidèlement les articles</li>
+                                                <li>• Préciser les conditions de l'offre</li>
+                                                <li>• Signer le document officiel</li>
+                                            </ul>
+                                        </div>
+                                        <div className="bg-orange-50 p-6 rounded-2xl border border-orange-100">
+                                            <h3 className="font-bold text-orange-800 flex items-center gap-2 mb-4">
+                                                <i className="fa-solid fa-lightbulb"></i> Rappel de cours
+                                            </h3>
+                                            <p className="text-sm text-orange-700 leading-relaxed">
+                                                Le bon de commande est un document juridique qui engage l'acheteur. 
+                                                Sois attentif aux <span className="font-bold">conditions de vente</span> négociées dans l'offre !
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-center pt-4">
+                                        <button onClick={() => setStep('COMPARE')} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-5 px-12 rounded-2xl transition-all transform hover:scale-105 shadow-xl flex items-center gap-3 text-lg">
+                                            Démarrer l'exercice <i className="fa-solid fa-arrow-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 'COMPARE' && (
+                            <div className="space-y-8 animate-fadeIn">
+                                <div className="text-center space-y-2">
+                                    <h2 className="text-3xl font-black text-gray-800 uppercase">Étape 1 : Choisir l'offre</h2>
+                                    <p className="text-gray-500">Compare les prix et les conditions avant de faire ton choix.</p>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-6xl mx-auto">
+                                    {OFFERS.map(o => (
+                                        <div key={o.id} className="bg-white border-2 border-transparent hover:border-blue-400 rounded-3xl shadow-xl overflow-hidden transition-all flex flex-col group">
+                                            <div className="bg-slate-800 text-white p-6 flex justify-between items-center group-hover:bg-blue-900 transition-colors">
+                                                <div>
+                                                    <h3 className="text-2xl font-bold">{o.supplierName}</h3>
+                                                    <p className="text-xs text-gray-400 uppercase tracking-widest">{o.supplierAddress}</p>
+                                                </div>
+                                                <i className="fa-solid fa-store text-2xl text-blue-400"></i>
+                                            </div>
+                                            <div className="p-8 flex-grow space-y-6">
+                                                <table className="w-full text-sm">
+                                                    <thead className="text-gray-400 uppercase text-[10px] border-b">
+                                                        <tr><th className="text-left py-2">Désignation</th><th className="text-right py-2">P.U. (€)</th></tr>
+                                                    </thead>
+                                                    <tbody className="divide-y divide-gray-50">
+                                                        {o.items.map(it => (
+                                                            <tr key={it.id}><td className="py-4 font-medium text-gray-700">{it.designation}</td><td className="py-4 text-right font-black text-gray-900">{it.pu.toFixed(2)} €</td></tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                                <div className="bg-slate-50 p-5 rounded-2xl space-y-3">
+                                                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Conditions de vente :</p>
+                                                    <div className="grid grid-cols-2 gap-4 text-xs">
+                                                        <div><span className="block text-gray-400 mb-1">Livraison</span><p className="font-bold text-gray-800">{o.conditions.deliveryDelay} ({o.conditions.deliveryMode})</p></div>
+                                                        <div><span className="block text-gray-400 mb-1">Paiement</span><p className="font-bold text-gray-800">{o.conditions.paymentDelay} - {o.conditions.paymentMode}</p></div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="p-8 pt-0">
+                                                <button onClick={() => {
+                                                    setSelectedOffer(o);
+                                                    setPo(prev => ({ ...prev, supplier: { name: o.supplierName, address: o.supplierAddress } }));
+                                                    setStep('FORM');
+                                                }} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-2">
+                                                    Choisir cette offre <i className="fa-solid fa-cart-plus"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 'FORM' && (
+                            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 animate-fadeIn">
+                                {/* Sidebar : Source Element */}
+                                <div className="xl:col-span-1 space-y-6">
+                                    <div className="bg-white p-8 rounded-3xl shadow-xl border-t-8 border-orange-500 sticky top-8">
+                                        <h3 className="font-bold text-gray-800 text-xl mb-6 flex items-center gap-3">
+                                            <i className="fa-solid fa-clipboard-check text-orange-500"></i> Articles à commander
+                                        </h3>
+                                        <div className="space-y-4 mb-8">
+                                            {selectedOffer.items.map(item => {
+                                                const isIn = po.items.some(i => i.id === item.id);
+                                                return (
+                                                    <div key={item.id} onClick={() => {
+                                                        if (!isIn) {
+                                                            const newItem = { ...item, quantity: item.qty, total: item.pu * item.qty };
+                                                            setPo(prev => ({ ...prev, items: [...prev.items, newItem] }));
+                                                        }
+                                                    }} className={`p-5 rounded-2xl border-2 transition-all cursor-pointer flex justify-between items-center group ${isIn ? 'bg-green-50 border-green-200 opacity-60' : 'bg-white border-gray-100 hover:border-orange-300 shadow-sm'}`}>
+                                                        <div>
+                                                            <span className="block text-[10px] text-gray-400 font-mono mb-1">{item.reference}</span>
+                                                            <span className="font-bold text-gray-800 text-sm">{item.designation}</span>
+                                                            <span className="block text-xs font-bold text-blue-600 mt-1">P.U: {item.pu.toFixed(2)} €</span>
+                                                        </div>
+                                                        <i className={`fa-solid ${isIn ? 'fa-check-circle text-green-500 text-xl' : 'fa-plus-circle text-gray-200 group-hover:text-orange-400 text-xl'}`}></i>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        <div className="pt-8 border-t border-gray-100">
+                                            <h4 className="font-black text-gray-400 text-[10px] uppercase tracking-widest mb-4">Conditions à respecter :</h4>
+                                            <div className="bg-blue-50 p-5 rounded-2xl text-xs space-y-3 text-blue-800 border border-blue-100">
+                                                <p><strong>Délai :</strong> {selectedOffer.conditions.deliveryDelay}</p>
+                                                <p><strong>Mode :</strong> {selectedOffer.conditions.deliveryMode}</p>
+                                                <p><strong>Paiement :</strong> {selectedOffer.conditions.paymentDelay} via {selectedOffer.conditions.paymentMode}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* PO Draft */}
+                                <div className="xl:col-span-2 space-y-10">
+                                    <div className="bg-white p-16 shadow-2xl rounded-sm border border-gray-200 mx-auto min-h-[1050px] flex flex-col" style={{ maxWidth: '800px' }}>
+                                        <div className="flex justify-between items-start mb-16">
+                                            <div>
+                                                <h2 className="text-2xl font-black text-blue-900 uppercase tracking-tighter">{po.buyer.name}</h2>
+                                                <p className="text-sm text-gray-500">{po.buyer.address}</p>
+                                                <div className="text-[10px] text-gray-400 mt-4 space-y-0.5">
+                                                    <p>TVA : {po.buyer.tva} - BCE : {po.buyer.bce}</p>
+                                                    <p>IBAN : {po.buyer.iban}</p>
+                                                </div>
+                                            </div>
+                                            <div className="text-right border-4 border-blue-900 p-4">
+                                                <h1 className="text-2xl font-bold uppercase tracking-tight">Bon de Commande</h1>
+                                                <p className="text-sm font-mono text-gray-400">N° {po.orderNumber}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-10 mb-16">
+                                            <div className="text-sm">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-2">Date du jour :</p>
+                                                <p className="border-b-2 border-gray-100 py-1 font-medium">{po.date}</p>
+                                            </div>
+                                            <div className="bg-slate-50 p-6 border-l-8 border-blue-900 rounded-r-2xl">
+                                                <p className="text-[10px] font-black text-blue-900 uppercase mb-2 flex items-center gap-1">
+                                                    <i className="fa-solid fa-truck-fast"></i> Destinataire :
+                                                </p>
+                                                <p className="font-black text-gray-800">{po.supplier.name}</p>
+                                                <p className="text-xs text-gray-500 mt-1">{po.supplier.address}</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex-grow">
+                                            <table className="w-full text-sm mb-12 border-collapse">
+                                                <thead className="bg-slate-800 text-white uppercase text-[10px]">
+                                                    <tr>
+                                                        <th className="py-4 px-4 text-left">Article</th>
+                                                        <th className="py-4 px-4 text-center w-24">Quantité</th>
+                                                        <th className="py-4 px-4 text-right w-32">P.U. (€)</th>
+                                                        <th className="py-4 px-4 text-right w-32">Total (€)</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-gray-100 border-b">
+                                                    {po.items.map(it => (
+                                                        <tr key={it.id} className="hover:bg-gray-50 group">
+                                                            <td className="py-5 px-4">
+                                                                <span className="font-bold text-gray-800">{it.designation}</span>
+                                                                <span className="block text-[10px] text-gray-400 font-mono mt-0.5">{it.reference}</span>
+                                                            </td>
+                                                            <td className="py-5 px-4 text-center">
+                                                                <input type="number" value={it.quantity} onChange={e => {
+                                                                    const q = parseInt(e.target.value) || 1;
+                                                                    setPo(prev => ({ ...prev, items: prev.items.map(i => i.id === it.id ? { ...i, quantity: q, total: i.pu * q } : i) }));
+                                                                }} className="w-16 border rounded-lg text-center py-1.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+                                                            </td>
+                                                            <td className="py-5 px-4 text-right font-medium">{it.pu.toFixed(2)}</td>
+                                                            <td className="py-5 px-4 text-right font-black">{it.total.toFixed(2)}</td>
+                                                            <td className="no-print opacity-0 group-hover:opacity-100 pr-4">
+                                                                <button onClick={() => setPo(prev => ({ ...prev, items: prev.items.filter(i => i.id !== it.id) }))} className="text-red-400 hover:text-red-600 transition-colors"><i className="fa-solid fa-trash-can"></i></button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                    {po.items.length === 0 && (
+                                                        <tr><td colSpan="5" className="py-24 text-center text-gray-300 italic text-lg">Clique sur les articles à gauche pour les ajouter...</td></tr>
+                                                    )}
+                                                </tbody>
+                                                {po.items.length > 0 && (
+                                                    <tfoot>
+                                                        <tr className="bg-slate-50">
+                                                            <td colSpan="3" className="py-5 px-4 text-right font-black uppercase text-gray-500 tracking-widest">Total Hors TVA :</td>
+                                                            <td className="py-5 px-4 text-right font-black text-2xl text-blue-900">{totalHT.toFixed(2)} €</td>
+                                                            <td></td>
+                                                        </tr>
+                                                    </tfoot>
+                                                )}
+                                            </table>
+
+                                            <div className="bg-slate-50/50 p-8 rounded-3xl border-2 border-dashed border-slate-200 space-y-8">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] border-b pb-3">Conditions de vente obligatoires :</p>
+                                                <div className="grid grid-cols-2 gap-x-10 gap-y-8">
+                                                    <div>
+                                                        <label className="block text-[10px] font-black text-blue-900 uppercase mb-2">Délai de livraison :</label>
+                                                        <select value={po.conditions.deliveryDelay} onChange={e => setPo(prev => ({ ...prev, conditions: { ...prev.conditions, deliveryDelay: e.target.value }}))} className="w-full bg-transparent border-b-2 border-blue-100 focus:border-blue-600 py-2 outline-none text-sm transition-colors">
+                                                            <option value="">-- Choisir --</option>
+                                                            {DELIVERY_DELAYS.map(m => <option key={m} value={m}>{m}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[10px] font-black text-blue-900 uppercase mb-2">Mode de livraison :</label>
+                                                        <select value={po.conditions.deliveryMode} onChange={e => setPo(prev => ({ ...prev, conditions: { ...prev.conditions, deliveryMode: e.target.value }}))} className="w-full bg-transparent border-b-2 border-blue-100 focus:border-blue-600 py-2 outline-none text-sm transition-colors">
+                                                            <option value="">-- Choisir --</option>
+                                                            {DELIVERY_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[10px] font-black text-blue-900 uppercase mb-2">Délai de paiement :</label>
+                                                        <select value={po.conditions.paymentDelay} onChange={e => setPo(prev => ({ ...prev, conditions: { ...prev.conditions, paymentDelay: e.target.value }}))} className="w-full bg-transparent border-b-2 border-blue-100 focus:border-blue-600 py-2 outline-none text-sm transition-colors">
+                                                            <option value="">-- Choisir --</option>
+                                                            {PAYMENT_DELAYS.map(m => <option key={m} value={m}>{m}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-[10px] font-black text-blue-900 uppercase mb-2">Mode de paiement :</label>
+                                                        <select value={po.conditions.paymentMode} onChange={e => setPo(prev => ({ ...prev, conditions: { ...prev.conditions, paymentMode: e.target.value }}))} className="w-full bg-transparent border-b-2 border-blue-100 focus:border-blue-600 py-2 outline-none text-sm transition-colors">
+                                                            <option value="">-- Choisir --</option>
+                                                            {PAYMENT_MODES.map(m => <option key={m} value={m}>{m}</option>)}
+                                                        </select>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="mt-16 flex justify-end">
+                                            <div className="w-64 text-center border-t border-gray-300 pt-4">
+                                                <p className="text-[10px] font-black text-gray-400 uppercase mb-4 tracking-widest">Signature de l'acheteur :</p>
+                                                <input type="text" placeholder="Ton nom complet..." value={po.signature} onChange={e => setPo(prev => ({...prev, signature: e.target.value}))} className="w-full text-center bg-transparent outline-none font-signature text-4xl text-blue-900 placeholder:text-gray-100" />
+                                                <p className="text-[9px] text-gray-400 mt-6 uppercase italic">Pour TECHSTORE SRL</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-center pb-24">
+                                        <button onClick={() => setStep('RESULT')} disabled={!isReady} className={`px-16 py-5 rounded-3xl font-bold text-xl shadow-2xl transition-all flex items-center gap-4 ${isReady ? 'bg-green-600 hover:bg-green-700 text-white transform hover:scale-105' : 'bg-gray-200 text-gray-400 cursor-not-allowed opacity-50'}`}>
+                                            Valider ma commande <i className="fa-solid fa-paper-plane"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 'RESULT' && (
+                            <div className="max-w-4xl mx-auto space-y-10 animate-fadeIn pb-24">
+                                <div className="bg-white rounded-[3rem] shadow-2xl overflow-hidden border">
+                                    <div className="bg-green-600 p-10 text-white text-center">
+                                        <div className="bg-white/20 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner">
+                                            <i className="fa-solid fa-graduation-cap text-5xl"></i>
+                                        </div>
+                                        <h2 className="text-4xl font-black mb-2 tracking-tight">Excellent Travail !</h2>
+                                        <p className="text-green-100 font-medium italic">Ton bon de commande est prêt à être envoyé.</p>
+                                    </div>
+                                    <div className="p-10 space-y-10">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <CheckItem label="Saisie des articles" checked={po.items.length === selectedOffer.items.length} tip="Attention, as-tu bien ajouté tous les articles de l'offre ?" />
+                                            <CheckItem label="Mode de livraison" checked={po.conditions.deliveryMode === selectedOffer.conditions.deliveryMode} tip={`D'après l'offre, tu devais choisir : ${selectedOffer.conditions.deliveryMode}`} />
+                                            <CheckItem label="Délai de livraison" checked={po.conditions.deliveryDelay === selectedOffer.conditions.deliveryDelay} tip={`D'après l'offre, tu devais choisir : ${selectedOffer.conditions.deliveryDelay}`} />
+                                            <CheckItem label="Mode de paiement" checked={po.conditions.paymentMode === selectedOffer.conditions.paymentMode} tip={`D'après l'offre, tu devais choisir : ${selectedOffer.conditions.paymentMode}`} />
+                                            <CheckItem label="Délai de paiement" checked={po.conditions.paymentDelay === selectedOffer.conditions.paymentDelay} tip={`D'après l'offre, tu devais choisir : ${selectedOffer.conditions.paymentDelay}`} />
+                                            <CheckItem label="Signature officielle" checked={po.signature.length > 2} />
+                                        </div>
+
+                                        <div className="pt-10 border-t flex flex-col sm:flex-row gap-6">
+                                            <button onClick={() => setStep('PREVIEW')} className="flex-grow bg-blue-600 text-white font-black py-5 rounded-2xl shadow-xl hover:bg-blue-700 transition-all flex justify-center items-center gap-3 text-lg">
+                                                <i className="fa-solid fa-file-pdf"></i> Visualiser le document final
+                                            </button>
+                                            <button onClick={() => window.location.reload()} className="bg-slate-100 text-slate-500 font-bold px-10 py-5 rounded-2xl hover:bg-slate-200 transition-all">
+                                                Recommencer
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {step === 'PREVIEW' && (
+                            <div className="max-w-[800px] mx-auto animate-fadeIn pb-24">
+                                <div className="no-print flex justify-between items-center mb-8">
+                                    <button onClick={() => setStep('RESULT')} className="bg-white px-6 py-3 rounded-xl border-2 shadow-sm flex items-center gap-2 font-bold text-slate-600 hover:bg-slate-50 transition-colors">
+                                        <i className="fa-solid fa-arrow-left"></i> Retour au bilan
+                                    </button>
+                                    <button onClick={() => window.print()} className="bg-blue-600 text-white px-8 py-3 rounded-xl shadow-xl flex items-center gap-3 font-black text-lg hover:bg-blue-700 transition-all transform hover:scale-105">
+                                        <i className="fa-solid fa-print"></i> Imprimer le document
+                                    </button>
+                                </div>
+                                <div className="bg-white p-20 shadow-2xl border print:border-none print:p-0 print:shadow-none min-h-[1050px]">
+                                    <div className="flex justify-between items-start mb-20">
+                                        <div>
+                                            <h2 className="text-3xl font-black text-blue-900 tracking-tighter uppercase leading-none">{po.buyer.name}</h2>
+                                            <p className="text-sm text-slate-500 mt-2">{po.buyer.address}</p>
+                                            <p className="text-[10px] text-slate-400 mt-4 leading-relaxed font-mono">BCE: {po.buyer.bce} | TVA: {po.buyer.tva}<br/>IBAN: {po.buyer.iban}</p>
+                                        </div>
+                                        <div className="text-right border-8 border-slate-900 p-6">
+                                            <h1 className="text-2xl font-black uppercase tracking-tight">Bon de Commande</h1>
+                                            <p className="font-mono text-sm text-slate-400 mt-1">DOC REF # {po.orderNumber}</p>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-16 mb-16 text-sm">
+                                        <div><p className="font-black text-slate-400 uppercase text-[10px] mb-2 tracking-widest">Émis le :</p><p className="border-b-2 border-slate-100 font-bold pb-2">{po.date}</p></div>
+                                        <div className="bg-slate-50 p-6 rounded-2xl border-l-8 border-blue-900">
+                                            <p className="font-black text-blue-900 text-[10px] uppercase mb-2 tracking-widest">Pour le fournisseur :</p>
+                                            <p className="font-black text-xl text-slate-800">{po.supplier.name}</p>
+                                            <p className="text-slate-500 mt-1">{po.supplier.address}</p>
+                                        </div>
+                                    </div>
+                                    <table className="w-full text-sm mb-16 border-collapse">
+                                        <thead className="border-y-4 border-slate-900 bg-slate-50 text-[10px] font-black uppercase tracking-widest">
+                                            <tr>
+                                                <th className="py-4 px-3 text-left">Description</th>
+                                                <th className="py-4 px-3 text-center w-20">Qté</th>
+                                                <th className="py-4 px-3 text-right w-24">P.U. (€)</th>
+                                                <th className="py-4 px-3 text-right w-24">TOTAL (€)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y-2 divide-slate-100">
+                                            {po.items.map(it => (
+                                                <tr key={it.id}>
+                                                    <td className="py-5 px-3 font-bold text-slate-800">{it.designation}</td>
+                                                    <td className="py-5 px-3 text-center font-medium">{it.quantity}</td>
+                                                    <td className="py-5 px-3 text-right">{it.pu.toFixed(2)}</td>
+                                                    <td className="py-5 px-3 text-right font-black">{it.total.toFixed(2)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                        <tfoot className="border-t-4 border-slate-900">
+                                            <tr>
+                                                <td colSpan="3" className="py-8 px-3 text-right font-black uppercase text-slate-400 tracking-widest">Montant Total HTVA :</td>
+                                                <td className="py-8 px-3 text-right font-black text-3xl text-blue-900">{totalHT.toFixed(2)} €</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                    <div className="bg-slate-50 p-8 rounded-3xl border-2 border-slate-200 text-sm mb-16">
+                                        <p className="font-black text-slate-400 uppercase text-[10px] mb-4 tracking-widest">Conditions commerciales validées :</p>
+                                        <div className="grid grid-cols-2 gap-x-12 gap-y-3">
+                                            <p className="flex justify-between"><strong>Livraison :</strong> <span className="font-bold text-slate-800">{po.conditions.deliveryMode}</span></p>
+                                            <p className="flex justify-between"><strong>Paiement :</strong> <span className="font-bold text-slate-800">{po.conditions.paymentMode}</span></p>
+                                            <p className="flex justify-between"><strong>Délai livr. :</strong> <span className="font-bold text-slate-800">{po.conditions.deliveryDelay}</span></p>
+                                            <p className="flex justify-between"><strong>Délai paiem. :</strong> <span className="font-bold text-slate-800">{po.conditions.paymentDelay}</span></p>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end mt-24">
+                                        <div className="w-64 text-center border-t-2 border-slate-300 pt-4">
+                                            <p className="text-[10px] uppercase font-black text-slate-400 mb-8 tracking-widest">Signature autorisée</p>
+                                            <p className="font-signature text-5xl text-blue-900 transform -rotate-2">{po.signature}</p>
+                                            <p className="text-[9px] text-slate-300 mt-10 uppercase font-bold italic tracking-tighter">Document contractuel émis par TECHSTORE SRL</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </main>
+
+                    <footer className="bg-white border-t p-6 text-center text-[10px] text-slate-400 no-print">
+                        <p className="font-bold tracking-widest uppercase">© 2025 - TECHSTORE TRAINING MODULE - Outil Éducatif Technique</p>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

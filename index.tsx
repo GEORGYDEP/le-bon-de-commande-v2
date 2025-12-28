@@ -1,0 +1,1 @@
+// Ce fichier n'est plus utilisé. Tout le code est dans index.html.
