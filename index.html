@@ -5,17 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Simulateur de Bon de Commande - 4e Technique</title>
     
-    <!-- Architecture No-Build : Import Map pour les modules standards -->
-    <script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@18.2.0",
-    "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "react/": "https://esm.sh/react@^19.2.3/"
-  }
-}
-</script>
-
+    <!-- React via CDN classique -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
     <!-- Transpilateur Babel pour le JSX au runtime -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     
@@ -43,9 +36,8 @@
 <body>
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
-        import React, { useState } from 'react';
-        import { createRoot } from 'react-dom/client';
+    <script type="text/babel">
+        const { useState } = React;
 
         // --- DONNÉES DE L'EXERCICE ---
         const BUYER_DATA = {
@@ -522,7 +514,7 @@
             );
         };
 
-        const root = createRoot(document.getElementById('root'));
+        const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
 </body>
